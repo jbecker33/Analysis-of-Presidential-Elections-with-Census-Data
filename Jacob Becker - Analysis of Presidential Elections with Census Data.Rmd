@@ -5,7 +5,7 @@ output: html_document
 ---
 
 ```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
-setwd("C:/Users/Jacob/Desktop/Final Project")
+setwd("Set Working Directory here")
 library(dplyr)
 library(elections)
 library(ggplot2)
