@@ -1,0 +1,1261 @@
+---
+title: "Analysis of Presidential Elections with Census Data"
+author: Jacob Becker
+output: html_document
+---
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+setwd("C:/Users/Jacob/Desktop/Final Project")
+library(dplyr)
+library(elections)
+library(ggplot2)
+library(tidyverse)
+library(rvest)
+library(magrittr) 
+library(tidycensus)
+library(censusapi)
+library(ipumsr)
+library(usmap)
+library(maps)
+library(usa)
+```
+
+```{r, echo=FALSE, results='hide'}
+
+Sys.getenv("fd1f1a2f21652ebf34cf4547eb57bb79cc008f6f")
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+pres <- read_csv("countypres_2000-2016.csv")
+```
+
+
+
+```{r, echo=FALSE, results='hide'}
+#Filtering Counties that Flipped
+clean<-function(x){
+  ifelse(is.na(x),0,x)
+}
+
+pres1 <- pres %>%
+  mutate(across(everything(),clean)) %>%
+  mutate(percent = candidatevotes/totalvotes) %>%
+  select(-version, -candidate, -candidatevotes) %>%
+  pivot_wider(names_from = party, values_from = percent, values_fill = 0) %>%
+  rename(third_party = `0`) 
+
+temp <- as.data.frame(max.col(pres1[,8:11])) %>%
+  rename(index = 1)%>%
+  mutate(winner = case_when(
+  index == 1 ~ "D",
+  index == 2 ~ "R",
+  T ~ "O"
+  )) %>%select(winner)
+
+pres1<-cbind(pres1, temp)
+
+pres2 <- pres1 %>%
+  select(-c(7:11)) %>%
+  pivot_wider(names_from = year, values_from = winner) 
+  
+
+```
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#merging 2020 data
+pres_2020 <- read_csv("2020_US_County_Level_Presidential_Results.csv")
+
+pres_2020a <- pres_2020 %>% 
+  mutate(across(everything(),clean)) %>%
+  select(-votes_dem, -votes_gop, -diff, -per_point_diff, -total_votes) %>%
+  rename("FIPS" = "county_fips") %>%
+  rename("state" = "state_name") %>%
+  rename("county" = "county_name") %>%
+  mutate(`2020` = case_when(
+    per_gop > per_dem ~ "R",
+    per_dem > per_gop ~ "D",
+  ))
+ pres_2020a$FIPS <- as.numeric(as.character(pres_2020a$FIPS))
+
+prestotal <- inner_join(pres2, pres_2020a, by = c("FIPS", "state")) %>%
+  select(-county.y, -per_gop, -per_dem)
+
+
+
+```
+
+I remember hearing the concept of swing states as early as 2008 in my life.  I was in third grade and Barrack Obama had won Florida.  Being nine at the time I had no idea what this meant or the concept of swing states.  Once I became more politically aware in my life Florida was once again a talking point in the 2016 election.  Now being in high school and almost being an actual person by this point, I was aware about swing states and their implication for elections.  When it came to picking an idea for this project, swing states still interested me and the concept of states and individuals changing voting behavior is really fascinating and multifaceted.  Deciding the scope of my project was the most difficult part of this planning process.  I had found 2000-2020 Presidential data and 1976-2018 Senate and House data.  I planned to do all three, which would have been doable but beyond the scope that was needed for this project.  Presidential data would have the most name recognition so I went with that.  I also decided to go with county level information rather than state.  Counties serve an interesting place in Presidential elections.  The overall votes per county do not matter, all that matters is the state numbers in the end.  So, the question I first thought was, are counties useless then?  I am not qualified to answer that but I thought it would be interesting to look at trends among counties to see what they were doing on election years.
+
+The data I used was from MIT election labs for 2000-2016 and the 2020 election data was scrubbed from the New York Times and made into a .csv file.  The census data was from the Census bureau.  The data for the elections looked like this originally.
+
+```{r, echo=FALSE}
+knitr::kable(head(pres))
+```
+
+
+It was cleaned up to look like this to make it easier to work with.
+```{r, echo=FALSE}
+knitr::kable(head(prestotal))
+```
+There are two aspects of this project: the behavior of counties that flip from election to election and analyzing trends from census data to try to explain flipping.  The first aspect is quite straight forward.  Where did the counties flip and how many?  This was my first question and what I feel is the first concept that needed to be visualized.  The idea behind this is that it is important to look at what counties flipped and where they flipped first before looking at the reasons why.  Creating this was also straight forward.  A new variable had to be created indicating whether or not a county flipped with a 0 or 1 (0 being not a flip and 1 being a flip).  From here counties that did not flip would be filtered out.  With the flipped counties a new variable would be made in the table indicating the behavior of the flip like Democrat to Republican and vice versa.  The code and output for 2000 to 2004 are seen below.
+
+```{r, eval=FALSE}
+pres20 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2000` == `2004` ~ 0,
+     `2000` != `2004` ~ 1
+    ))
+# 0 = No    1 = Yes
+
+pres21 <- pres20 %>% 
+  filter(flip != 0) %>% 
+  drop_na() %>%
+  filter(`2000` != "O")
+
+
+
+
+pres22 <- pres21 %>% 
+  mutate(RtoD = case_when(
+     `2000` == "D" ~ "D to R",
+     `2000` == "R" ~ "R to D"
+  ))
+
+```
+```{r, echo=FALSE, message=FALSE}
+pres20 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2000` == `2004` ~ 0,
+     `2000` != `2004` ~ 1
+    ))
+# 0 = No    1 = Yes
+
+pres21 <- pres20 %>% 
+  filter(flip != 0) %>% 
+  drop_na() %>%
+  filter(`2000` != "O")
+
+
+
+
+pres22 <- pres21 %>% 
+  mutate(RtoD = case_when(
+     `2000` == "D" ~ "D to R",
+     `2000` == "R" ~ "R to D"
+  ))
+
+```
+
+
+```{r, echo=FALSE}
+knitr::kable(head(pres22))
+```
+
+The flip is only for 2000-2004 but the election history of the whole county is still shown to make my coding life easier.
+
+The theory behind using the census data for trends was a lot less simple.  All counties needed to be included to determine correlation.  The census data for each county had to be compared to the election cycle prior.  For example, the difference of the 2012 to 2016 median age had to have the 2012 medians subtracted from the 2016 data to get the difference. 
+
+```{r, eval=FALSE}
+medage_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+medage_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+
+medage_county <- inner_join(medage_county_2012, medage_county_2016, by = c("GEOID", "NAME", "variable"))
+
+medage_county1 <- medage_county %>%
+  mutate(agechange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  medage_county1$FIPS <- as.numeric(as.character(medage_county1$FIPS))
+
+pres_age <- inner_join(pres3, medage_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+```
+
+```{r, echo=FALSE, warning=FALSE}
+pres3 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2012` == `2016` ~ 0,
+     `2012` != `2016` ~ 1
+    ))
+
+
+# 0 = No    1 = Yes
+pres4 <- pres3[!(apply(pres3, 1, function(y) any(y == 0))),]
+
+pres5 <- pres4[!(apply(pres4, 1, function(y) any(y == "O"))),]
+
+pres6 <- pres5 %>% 
+  mutate(RtoD = case_when(
+     `2012` == "D" ~ "D to R",
+     `2012` == "R" ~ "R to D"
+  ))
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+medage_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+medage_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+
+medage_county <- inner_join(medage_county_2012, medage_county_2016, by = c("GEOID", "NAME", "variable"))
+
+medage_county1 <- medage_county %>%
+  mutate(agechange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  medage_county1$FIPS <- as.numeric(as.character(medage_county1$FIPS))
+
+pres_age <- inner_join(pres3, medage_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+```
+
+
+```{r, echo=FALSE}
+knitr::kable(head(pres_age))
+```
+
+
+From here this new variable regarding change was used in the logistical regression as the independent variable and flipping as the dependent variable.  This logic and method were applied to each variable and each set of years.
+
+This was my idea going into the project.  Pick a few variables, find correlation or lack of correlation and report on that.  I knew going in that the biggest short coming to this project is that a lot of variables I would be testing would actually be interconnected so isolating them would not give the best picture.  Median income was one variable I knew I had to test for and education was another.  I know from previous classes that higher income levels are usually correlated with higher levels of education.  I was not expecting their correlation to county flipping to be the same but they serve as an example of the idea that many things are going on at once, and not just one explanation is going to cut it.  
+
+Beside this conceptual problem I had to keep in mind that I had some technical ones as well.  The biggest was the limitations of my data.  The census data I had came from a package that contained only the ACS 5-year data from 2009-2018.  With this package I could not include 2000 and 2004 in my census analysis portion.  While the remaining elections still provided interesting results, I was disappointed that they also could not have been included in this part of the project.  Second, with no exact census data for 2008 and 2020 I used 2009 and 2018 respectively for those years.  There is not going to be the biggest demographic shifts given a year or two, but something that should be noted.  
+
+The coding for this project went pretty smooth once I was able to get all the census data working.  The merging of data and tabulating it correctly was straightforward and I had no problem with the manipulation of it either.  The census data was easy to use once I got the right data.  I was using the ACS 1-year at first but that had data for counties of a population over 65,000 and I wanted all counties.  Switching to the 5-year solved this problem but figuring that out was very stressful because if I could not I felt the whole project was done and could not be completed.  Everything went fine after finding this out and switching to the right survey data.
+
+Let’s discuss the data now.  As stated earlier, it was separated into two sections.  The data purely about flipping resulted in some very cool and interesting graphs below.
+
+
+
+```{r, echo=FALSE, results='hide'}
+#2000-2004 flips
+pres20 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2000` == `2004` ~ 0,
+     `2000` != `2004` ~ 1
+    ))
+# 0 = No    1 = Yes
+
+pres21 <- pres20 %>% 
+  filter(flip != 0) %>% 
+  drop_na() %>%
+  filter(`2000` != "O")
+
+
+
+
+pres22 <- pres21 %>% 
+  mutate(RtoD = case_when(
+     `2000` == "D" ~ "D to R",
+     `2000` == "R" ~ "R to D"
+  ))
+
+
+
+flip00_04 <- count(pres22, vars = RtoD)
+
+flip00_04state <- count(pres22, state = state)
+
+flip00_04state <- transform(flip00_04state, state = reorder(state, -n))
+
+ggplot(data = flip00_04) + geom_bar(aes(x = vars, y = n, fill = vars), stat='identity') + ylab("Number of Counties that Flipped") + xlab("Behavior of flip") + labs(title = "Type and number of flipped counties from the 2000 election to 2004") + scale_fill_manual(values = c("Red", "Blue"), guide = "none")
+
+ggplot(data = flip00_04state) + geom_bar(aes(x = state, y = n, fill = state), stat='identity') + ylab("Number of Counties that Flipped") + labs(title = "Number of flipped counties per state from the\n 2000 election to 2004") + theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+This is for 2000-2004.  As you can see Bush did well in both elections swing counties.  This graph unfortunately does not tell a whole lot about the nuance as to why.  In 2004 did the Iraq and Afghanistan wars have a 'rally around the flag' effect for Bush?  This data cannot be used to determine that.  This does provide an interesting stepping point into research and public opinion if someone really wants to figure out why this is the case.
+
+
+```{r, echo=FALSE, results='hide'}
+#2004-2008 flips
+pres10 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2004` == `2008` ~ 0,
+     `2004` != `2008` ~ 1
+    ))
+# 0 = No    1 = Yes
+
+pres11 <- pres10[!(apply(pres10, 1, function(y) any(y == 0))),] %>% 
+  drop_na()
+
+pres12 <- pres11 %>% 
+  mutate(RtoD = case_when(
+     `2004` == "D" ~ "D to R",
+     `2004` == "R" ~ "R to D"
+  ))
+
+
+
+flip04_08 <- count(pres12, vars = RtoD)
+
+flip04_08state <- count(pres12, state = state)
+
+flip04_08state <- transform(flip04_08state, state = reorder(state, -n))
+
+ggplot(data = flip04_08) + geom_bar(aes(x = vars, y = n, fill = vars), stat='identity') + ylab("Number of Counties that Flipped") + xlab("Behavior of flip") + labs(title = "Type and number of flipped counties from the 2004 election to 2008") + scale_fill_manual(values = c("Red", "Blue"), guide = "none")
+
+ggplot(data = flip04_08state) + geom_bar(aes(x = state, y = n, fill = state), stat='identity') + ylab("Number of Counties that Flipped") + labs(title = "Number of flipped counties per state from the 2004 election to 2008") + theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+2004-2008 results were about what I expected.  Obama’s sizable victory over McCain led me to believe Obama would garner a lot more counties which did occur.  Once again, the reasons why can only be speculated from these graphs.  The economy is my first theory as to why this happened due to the 2008 financial crisis.  
+
+
+```{r, echo=FALSE, results='hide'}
+#2008-2012 flips
+pres7 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2008` == `2012` ~ 0,
+     `2008` != `2012` ~ 1
+    ))
+# 0 = No    1 = Yes
+
+pres8 <- pres7[!(apply(pres7, 1, function(y) any(y == 0))),]
+
+pres9 <- pres8 %>% 
+  mutate(RtoD = case_when(
+     `2008` == "D" ~ "D to R",
+     `2008` == "R" ~ "R to D"
+  ))
+
+flip08_12 <- count(pres9, vars = RtoD)
+
+flip08_12state <- count(pres9, state = state)
+
+flip08_12state <- transform(flip08_12state, state = reorder(state, -n))
+
+ggplot(data = flip08_12) + geom_bar(aes(x = vars, y = n, fill = vars), stat='identity') + ylab("Number of Counties that Flipped") + xlab("Behavior of flip") + labs(title = "Type and number of flipped counties from the 2008 election to 2012") + scale_fill_manual(values = c("Red", "Blue"), guide = "none")
+
+ggplot(data = flip08_12state) + geom_bar(aes(x = state, y = n, fill = state), stat='identity') + ylab("Number of Counties that Flipped")  + labs(title = "Number of flipped counties per state from the\n 2008 election to 2012") + theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+2008-2012 is a lot less concrete in my opinion as to why Obama lost many counties.  Was the coalition against Obama really strong?  Was Romney a better candidate than McCain?  Once again there are many avenues to research this to determine a reason why.
+
+
+
+
+```{r, echo=FALSE, results='hide'}
+#2012-2016 flips
+pres3 <- pres2 %>% 
+  mutate(flip = case_when(
+     `2012` == `2016` ~ 0,
+     `2012` != `2016` ~ 1
+    ))
+
+
+# 0 = No    1 = Yes
+pres4 <- pres3[!(apply(pres3, 1, function(y) any(y == 0))),]
+
+pres5 <- pres4[!(apply(pres4, 1, function(y) any(y == "O"))),]
+
+pres6 <- pres5 %>% 
+  mutate(RtoD = case_when(
+     `2012` == "D" ~ "D to R",
+     `2012` == "R" ~ "R to D"
+  ))
+
+flip12_16 <- count(pres6, vars = RtoD)
+
+flip12_16state <- count(pres6, state = state)
+
+flip12_16state <- transform(flip12_16state, state = reorder(state, -n))
+
+ggplot(data = flip12_16) + geom_bar(aes(x = vars, y = n, fill = vars), stat='identity') + ylab("Number of Counties that Flipped") + xlab("Behavior of flip") + labs(title = "Type and number of flipped counties from the 2012 election to 2016") + scale_fill_manual(values = c("Red", "Blue"), guide = "none")
+
+ggplot(data = flip12_16state) + geom_bar(aes(x = state, y = n, fill = state), stat='identity') + ylab("Number of Counties that Flipped") + labs(title = "Number of flipped counties per state from the\n 2012 election to 2016") + theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+
+
+```
+
+2012-2016 is when the real questions can be asked.  Trump performed very well and many articles, new columns, and papers have been written as to why.  These graphs beg the question why this happened, but do not have any answers themselves.
+
+
+
+
+
+
+```{r, echo=FALSE, results='hide'}
+#2016-2020 flips
+pres13 <- prestotal %>% 
+  mutate(flip = case_when(
+     `2016` == `2020` ~ 0,
+     `2016` != `2020` ~ 1
+    ))
+# 0 = No    1 = Yes
+
+
+pres14 <- pres13 %>% 
+  filter(flip != 0)
+
+
+pres15 <- pres14 %>% 
+  mutate(RtoD = case_when(
+     `2008` == "D" ~ "D to R",
+     `2008` == "R" ~ "R to D"
+  ))
+
+flip16_20 <- count(pres15, vars = RtoD)
+
+flip16_20state <- count(pres15, state = state)
+
+flip16_20state <- transform(flip16_20state, state = reorder(state, -n))
+
+ggplot(data = flip16_20) + geom_bar(aes(x = vars, y = n, fill = vars), stat='identity') + ylab("Number of Counties that Flipped") + xlab("Behavior of flip") + labs(title = "Type and number of flipped counties from the 2016 election to 2020") + scale_fill_manual(values = c("Red","Blue"), guide = "none")
+
+ggplot(data = flip16_20state) + geom_bar(aes(x = state, y = n, fill = state), stat='identity') + ylab("Number of Counties that Flipped") + labs(title = "Number of flipped counties per state from the\n 2016 election to 2020") + theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
+```
+
+2016-2020 was also really interesting.  After completing my project, I learned that Biden won with the least number of counties for a victor.  A lot of public opinion can be looked at as well as the impact of COVID-19.  
+
+Now its time to look into some variables over 2009 to 2018 (corresponding roughly to 2008-2020).  The variables I chose were median age, median income, immigration, number of people with bachelor’s degrees, African-American population, individuals with an income under $10,000, individuals employed over the age of 16.
+
+These are the results calculated through logistical regression of the relationship for median age and counties flipping behavior.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Age 2009 to 2012
+medage_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+medage_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+
+medage_countya <- inner_join(medage_county_2012, medage_county_2009, by = c("GEOID", "NAME", "variable"))
+
+medage_countyb <- medage_countya %>%
+  mutate(agechange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  medage_countyb$FIPS <- as.numeric(as.character(medage_countyb$FIPS))
+
+pres_age1 <- inner_join(pres7, medage_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+
+logistic3 <- glm(flip ~ agechange, data = pres_age1, family = "binomial")
+summary(logistic3)
+
+ggplot(pres_age1, aes(agechange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in Median Age and Flipping")
+```
+```{r, echo=FALSE}
+logistic3 <- glm(flip ~ agechange, data = pres_age1, family = "binomial")
+summary(logistic3)
+```
+
+
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+
+#Age 2012 to 2016
+medage_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+medage_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+
+medage_county <- inner_join(medage_county_2012, medage_county_2016, by = c("GEOID", "NAME", "variable"))
+
+medage_county1 <- medage_county %>%
+  mutate(agechange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  medage_county1$FIPS <- as.numeric(as.character(medage_county1$FIPS))
+
+pres_age <- inner_join(pres3, medage_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+
+logistic1 <- glm(flip ~ agechange1, data = pres_age, family = "binomial")
+summary(logistic1)
+
+ggplot(pres_age, aes(agechange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in Median Age and Flipping")
+```
+
+```{r, echo=FALSE}
+logistic1 <- glm(flip ~ agechange1, data = pres_age, family = "binomial")
+summary(logistic1)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Age 2016-2018
+
+medage_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+medage_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(mediage = "B01002_001"))
+
+
+medage_countyz <- inner_join(medage_county_2016, medage_county_2018, by = c("GEOID", "NAME", "variable"))
+
+medage_countyz1 <- medage_countyz %>%
+  mutate(agechange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  medage_countyz1$FIPS <- as.numeric(as.character(medage_countyz1$FIPS))
+
+pres_agex <- inner_join(pres13, medage_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+logistic50 <- glm(flip ~ agechange2, data = pres_agex, family = "binomial")
+summary(logistic50)
+
+ggplot(pres_agex, aes(agechange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2016-2020 Change in Median Age and Flipping")
+```
+
+```{r, echo=FALSE}
+logistic50 <- glm(flip ~ agechange2, data = pres_agex, family = "binomial")
+summary(logistic50)
+```
+
+
+2008-2012 did not have a whole lot of significance with a p value of 0.303.  The trend line shows that counties with bigger changes in the negative direction, meaning as the population got younger, the county was more likely not to flip.  This is a very general observation and many reasons could explain this that just are not present.  It does seem that counties that are getting younger are just continuing to vote how they have been.  2012-2016 and 2016-2020 were similar in significance and trend.  They had significance numbers of 0.0855 and 0.1 respectively.  Both show as populations got older, they were more likely to not change. 
+
+Income is now shown below.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Income 2009-2012
+income_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(medincome = "B19013_001"))
+
+income_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(medincome = "B19013_001"))
+
+
+income_countya <- inner_join(income_county_2012, income_county_2009, by = c("GEOID", "NAME", "variable"))
+
+income_countyb <- income_countya %>%
+  mutate(incomechange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  income_countyb$FIPS <- as.numeric(as.character(income_countyb$FIPS))
+
+pres_inc1 <- inner_join(pres7, income_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+logistic <- glm(flip ~ incomechange, data = pres_inc1, family = "binomial")
+summary(logistic)
+
+ggplot(pres_inc1, aes(incomechange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in Median Income and Flipping")
+```
+
+```{r, echo=FALSE}
+logistic <- glm(flip ~ incomechange, data = pres_inc1, family = "binomial")
+summary(logistic)
+```
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Income 2012-2016
+income_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(medincome = "B19013_001"))
+
+income_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(medincome = "B19013_001"))
+
+
+income_county <- inner_join(income_county_2012, income_county_2016, by = c("GEOID", "NAME", "variable"))
+
+income_county1 <- income_county %>%
+  mutate(incomechange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  income_county1$FIPS <- as.numeric(as.character(income_county1$FIPS))
+
+pres_inc <- inner_join(pres3, income_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+logistic4 <- glm(flip ~ incomechange1, data = pres_inc, family = "binomial")
+summary(logistic4)
+
+ggplot(pres_inc, aes(incomechange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in Median Income and Flipping")
+
+```
+
+```{r, echo=FALSE}
+logistic4 <- glm(flip ~ incomechange1, data = pres_inc, family = "binomial")
+summary(logistic4)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Income 2016-2018
+income_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(medincome = "B19013_001"))
+
+income_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(medincome = "B19013_001"))
+
+
+income_countyz <- inner_join(income_county_2018, income_county_2016, by = c("GEOID", "NAME", "variable"))
+
+income_countyz1 <- income_countyz %>%
+  mutate(incomechange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  income_countyz1$FIPS <- as.numeric(as.character(income_countyz1$FIPS))
+
+pres_incz <- inner_join(pres13, income_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+
+logistic51 <- glm(flip ~ incomechange2, data = pres_incz, family = "binomial")
+summary(logistic51)
+
+ggplot(pres_incz, aes(incomechange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE)  + labs(title = "2016-2020 Change in Median Income and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic51 <- glm(flip ~ incomechange2, data = pres_incz, family = "binomial")
+summary(logistic51)
+```
+
+
+2008-2012 and 2012-2016 income had very little significance and the trend lines supported this offering had little to extrapolate.  2016-2020 had a p value of 0.000342.  This is very significant and the trend line shows that counties that declined in median income were more likely to vote the same as they did in 2016.  The two leading theories in my view are that either Trump captured these declining income counties from the Obama era and kept them, or these counties did the opposite and voted Democrat opposing Trump.
+
+Next up is immigration.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Immigration 2009-2012
+
+immigration_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(immigration = "B05002_014"))
+
+immigration_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(immigration = "B05002_014"))
+
+
+immigration_countya <- inner_join(immigration_county_2012, immigration_county_2009, by = c("GEOID", "NAME", "variable"))
+
+immigration_countyb <- immigration_countya %>%
+  mutate(immigrationchange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  immigration_countyb$FIPS <- as.numeric(as.character(immigration_countyb$FIPS))
+
+pres_imm1 <- inner_join(pres7, immigration_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+
+logistic5 <- glm(flip ~ immigrationchange, data = pres_imm1, family = "binomial")
+summary(logistic5)
+
+ggplot(pres_imm1, aes(immigrationchange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in Immigrant Population and Flipping")
+
+
+```
+
+```{r, echo=FALSE}
+logistic5 <- glm(flip ~ immigrationchange, data = pres_imm1, family = "binomial")
+summary(logistic5)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Immigration 2012-2016
+immigration_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(immigration = "B05002_014"))
+
+immigration_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(immigration = "B05002_014"))
+
+
+immigration_county <- inner_join(immigration_county_2012, immigration_county_2016, by = c("GEOID", "NAME", "variable"))
+
+immigration_county1 <- immigration_county %>%
+  mutate(immigrationchange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  immigration_county1$FIPS <- as.numeric(as.character(immigration_county1$FIPS))
+
+pres_imm <- inner_join(pres3, immigration_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic6 <- glm(flip ~ immigrationchange1, data = pres_imm, family = "binomial")
+summary(logistic6)
+
+ggplot(pres_imm, aes(immigrationchange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in Immigrant Population and Flipping")
+
+```
+
+```{r, echo=FALSE}
+logistic6 <- glm(flip ~ immigrationchange1, data = pres_imm, family = "binomial")
+summary(logistic6)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Immigration 2016-2018
+immigration_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(immigration = "B05002_014"))
+
+immigration_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(immigration = "B05002_014"))
+
+
+immigration_countyz <- inner_join(immigration_county_2018, immigration_county_2016, by = c("GEOID", "NAME", "variable"))
+
+immigration_countyz1 <- immigration_countyz %>%
+  mutate(immigrationchange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  immigration_countyz1$FIPS <- as.numeric(as.character(immigration_countyz1$FIPS))
+
+pres_immz <- inner_join(pres13, immigration_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic52 <- glm(flip ~ immigrationchange2, data = pres_immz, family = "binomial")
+summary(logistic52)
+
+ggplot(pres_immz, aes(immigrationchange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2016-2020 Change in Immigrant Population and Flipping")
+
+```
+```{r, echo=FALSE, warning=FALSE}
+logistic52 <- glm(flip ~ immigrationchange2, data = pres_immz, family = "binomial")
+summary(logistic52)
+```
+
+
+The immigration counties that flipped had relatively little changes in immigrant populations in all three models.  Large negative changes indicate a higher likelihood of not flipping.  The same goes for the few counties with large immigrant population changes.  My best guess is that counties with large changes are ones that already have a lot of immigrants and voting is consistent.  Los Angeles had large increases and decreases over the years but still maintained a large immigrant population regardless and voted the same every election.
+
+This is the results for bachelor’s degrees.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#College degrees 2009-2012
+degree_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(degrees = "B15002_015"))
+
+degree_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(degrees = "B15003_022"))
+
+
+degree_countya <- inner_join(degree_county_2012, degree_county_2009, by = c("GEOID", "NAME", "variable"))
+
+degree_countyb <- degree_countya %>%
+  mutate(degreechange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  degree_countyb$FIPS <- as.numeric(as.character(degree_countyb$FIPS))
+
+pres_degree1 <- inner_join(pres7, degree_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic7 <- glm(flip ~ degreechange, data = pres_degree1, family = "binomial")
+summary(logistic7)
+
+ggplot(pres_degree1, aes(degreechange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in Population with Bachelor's Degree and Flipping")
+
+```
+
+```{r, echo=FALSE}
+logistic7 <- glm(flip ~ degreechange, data = pres_degree1, family = "binomial")
+summary(logistic7)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#College degrees 2012-2016
+degree_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(degrees = "B15003_022"))
+
+degree_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(degrees = "B15003_022"))
+
+
+degree_county <- inner_join(degree_county_2012, degree_county_2016, by = c("GEOID", "NAME", "variable"))
+
+degree_county1 <- degree_county %>%
+  mutate(degreechange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  degree_county1$FIPS <- as.numeric(as.character(degree_county1$FIPS))
+
+pres_degree <- inner_join(pres3, degree_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic8 <- glm(flip ~ degreechange1, data = pres_degree, family = "binomial")
+summary(logistic8)
+
+ggplot(pres_degree, aes(degreechange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in Population with Bachelor's Degree and Flipping")
+
+
+
+```
+
+```{r, echo=FALSE}
+logistic8 <- glm(flip ~ degreechange1, data = pres_degree, family = "binomial")
+summary(logistic8)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#College degrees 2016-2018
+degree_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(degrees = "B15003_022"))
+
+degree_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(degrees = "B15003_022"))
+
+
+degree_countyz <- inner_join(degree_county_2018, degree_county_2016, by = c("GEOID", "NAME", "variable"))
+
+degree_countyz1 <- degree_countyz %>%
+  mutate(degreechange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  degree_countyz1$FIPS <- as.numeric(as.character(degree_countyz1$FIPS))
+
+pres_degreez <- inner_join(pres13, degree_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic53 <- glm(flip ~ degreechange2, data = pres_degreez, family = "binomial")
+summary(logistic53)
+
+ggplot(pres_degreez, aes(degreechange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2016-2020 Change in Population with Bachelor's Degree and Flipping")
+
+
+```
+```{r, echo=FALSE}
+logistic53 <- glm(flip ~ degreechange2, data = pres_degreez, family = "binomial")
+summary(logistic53)
+```
+
+
+The number of individuals with bachelor’s degrees was relatively insignificant until 2016-2020.  Counties with large losses voted the same as they did in 2016.  One theory for this is that uneducated voters favored Trump and his capture of them in 2016 still held strong for him in 2020.  Overall counties with large changes in numbers of individuals with degrees tended to vote as they had.
+
+Here are the results for African-American population.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Race - African-American 2009-2012
+raceaa_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(raceaa = "B02001_003"))
+
+raceaa_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(raceaa = "B02001_003"))
+
+
+raceaa_countya <- inner_join(raceaa_county_2012, raceaa_county_2009, by = c("GEOID", "NAME", "variable"))
+
+raceaa_countyb <- raceaa_countya %>%
+  mutate(raceaachange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  raceaa_countyb$FIPS <- as.numeric(as.character(raceaa_countyb$FIPS))
+
+pres_raceaa1 <- inner_join(pres7, raceaa_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic9 <- glm(flip ~ raceaachange, data = pres_raceaa1, family = "binomial")
+summary(logistic9)
+
+ggplot(pres_raceaa1, aes(raceaachange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in African-American Population and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic9 <- glm(flip ~ raceaachange, data = pres_raceaa1, family = "binomial")
+summary(logistic9)
+
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Race - African-American 2012-2016
+raceaa_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(raceaa = "B02001_003"))
+
+raceaa_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(raceaa = "B02001_003"))
+
+
+raceaa_county <- inner_join(raceaa_county_2012, raceaa_county_2016, by = c("GEOID", "NAME", "variable"))
+
+raceaa_county1 <- raceaa_county %>%
+  mutate(raceaachange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  raceaa_county1$FIPS <- as.numeric(as.character(raceaa_county1$FIPS))
+
+pres_raceaa <- inner_join(pres3, raceaa_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic10 <- glm(flip ~ raceaachange1, data = pres_raceaa, family = "binomial")
+summary(logistic10)
+
+ggplot(pres_raceaa, aes(raceaachange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in African-American Population and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic10 <- glm(flip ~ raceaachange1, data = pres_raceaa, family = "binomial")
+summary(logistic10)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Race - African-American 2016-2018
+raceaa_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(raceaa = "B02001_003"))
+
+raceaa_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(raceaa = "B02001_003"))
+
+
+raceaa_countyz <- inner_join(raceaa_county_2018, raceaa_county_2016, by = c("GEOID", "NAME", "variable"))
+
+raceaa_countyz1 <- raceaa_countyz %>%
+  mutate(raceaachange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  raceaa_countyz1$FIPS <- as.numeric(as.character(raceaa_countyz1$FIPS))
+
+pres_raceaaz <- inner_join(pres13, raceaa_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic54 <- glm(flip ~ raceaachange2, data = pres_raceaaz, family = "binomial")
+summary(logistic54)
+
+ggplot(pres_raceaaz, aes(raceaachange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2016-2020 Change in African-American Population and Flipping")
+
+
+```
+```{r, echo=FALSE}
+logistic54 <- glm(flip ~ raceaachange2, data = pres_raceaaz, family = "binomial")
+summary(logistic54)
+```
+
+
+
+For these the p value was only really significant in 2016-2020 with 0.000436.  For the others, it should not be disregarded but it is not as bad as others so far.  My theory for this variable is similar to immigration change.  Broward county, for instance, had one of the higher increases in African-Americans but still voted the same.  
+
+The penultimate variable is individuals with an income under $10,000.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Poorest People 2009-2012
+poor_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(poor = "B19001_002"))
+
+poor_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(poor = "B07010_004"))
+
+
+poor_countya <- inner_join(poor_county_2012, poor_county_2009, by = c("GEOID", "NAME", "variable"))
+
+poor_countyb <- poor_countya %>%
+  mutate(poorchange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  poor_countyb$FIPS <- as.numeric(as.character(poor_countyb$FIPS))
+
+pres_poor1 <- inner_join(pres7, poor_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic11 <- glm(flip ~ poorchange, data = pres_poor1, family = "binomial")
+summary(logistic11)
+
+ggplot(pres_poor1, aes(poorchange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in Population with Income under $10,000 and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic11 <- glm(flip ~ poorchange, data = pres_poor1, family = "binomial")
+summary(logistic11)
+
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Poorest People 2012-2016
+poor_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(poor = "B07010_004"))
+
+poor_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(poor = "B07010_004"))
+
+
+poor_county <- inner_join(poor_county_2012, poor_county_2016, by = c("GEOID", "NAME", "variable"))
+
+poor_county1 <- poor_county %>%
+  mutate(poorchange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  poor_county1$FIPS <- as.numeric(as.character(poor_county1$FIPS))
+
+pres_poor <- inner_join(pres3, poor_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic12 <- glm(flip ~ poorchange1, data = pres_poor, family = "binomial")
+summary(logistic12)
+
+ggplot(pres_poor, aes(poorchange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in Population with Income under $10,000 and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic12 <- glm(flip ~ poorchange1, data = pres_poor, family = "binomial")
+summary(logistic12)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Poorest People 2016-2018
+poor_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(poor = "B07010_004"))
+
+poor_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(poor = "B07010_004"))
+
+
+poor_countyz <- inner_join(poor_county_2018, poor_county_2016, by = c("GEOID", "NAME", "variable"))
+
+poor_countyz1 <- poor_countyz %>%
+  mutate(poorchange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  poor_countyz1$FIPS <- as.numeric(as.character(poor_countyz1$FIPS))
+
+pres_poorz <- inner_join(pres13, poor_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic55 <- glm(flip ~ poorchange2, data = pres_poorz, family = "binomial")
+summary(logistic55)
+
+ggplot(pres_poorz, aes(poorchange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2016-2020 Change in Population with Income under $10,000 and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic55 <- glm(flip ~ poorchange2, data = pres_poorz, family = "binomial")
+summary(logistic55)
+```
+
+
+These had very significant p values except for 2008-2012.  In a similar manner to other variables, the correlation between large changes and not flipping.  Counties with large changes already had relatively high populations that did not flip.  Once again Los Angeles is the prime example.
+
+The final variable is employment.
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Employment 2009-2012
+employment_county_2009 <- get_acs(geography = "county",
+                                year = 2009,
+                                survey = "acs5",
+                                variables = c(rich = "B23001_001"))
+
+employment_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(rich = "B23001_001"))
+
+
+employment_county <- inner_join(employment_county_2012, employment_county_2009, by = c("GEOID", "NAME", "variable"))
+
+employment_county1 <- employment_county %>%
+  mutate(employmentchange = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  employment_county1$FIPS <- as.numeric(as.character(employment_county1$FIPS))
+
+pres_employment <- inner_join(pres7, employment_county1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic14 <- glm(flip ~ employmentchange, data = pres_employment, family = "binomial")
+summary(logistic14)
+
+ggplot(pres_employment, aes(employmentchange, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2008-2012 Change in Employment and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic14 <- glm(flip ~ employmentchange, data = pres_employment, family = "binomial")
+summary(logistic14)
+```
+
+
+```{r, echo=FALSE, results='hide', message=FALSE}
+#Employment 2012-2016
+employment_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(rich = "B23001_001"))
+
+employment_county_2012 <- get_acs(geography = "county",
+                                year = 2012,
+                                survey = "acs5",
+                                variables = c(rich = "B23001_001"))
+
+
+employment_countya <- inner_join(employment_county_2012, employment_county_2016, by = c("GEOID", "NAME", "variable"))
+
+employment_countyb <- employment_countya %>%
+  mutate(employmentchange1 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  employment_countyb$FIPS <- as.numeric(as.character(employment_countyb$FIPS))
+
+pres_employment1 <- inner_join(pres3, employment_countyb, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic15 <- glm(flip ~ employmentchange1, data = pres_employment1, family = "binomial")
+summary(logistic15)
+
+ggplot(pres_employment1, aes(employmentchange1, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2012-2016 Change in Employment and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic15 <- glm(flip ~ employmentchange1, data = pres_employment1, family = "binomial")
+summary(logistic15)
+```
+
+
+
+```{r, echo=FALSE, results='hide', message=FALSE, warning=FALSE}
+#Employment 2016-2018
+employment_county_2016 <- get_acs(geography = "county",
+                                year = 2016,
+                                survey = "acs5",
+                                variables = c(rich = "B23001_001"))
+
+employment_county_2018 <- get_acs(geography = "county",
+                                year = 2018,
+                                survey = "acs5",
+                                variables = c(rich = "B23001_001"))
+
+
+employment_countyz <- inner_join(employment_county_2018, employment_county_2016, by = c("GEOID", "NAME", "variable"))
+
+employment_countyz1 <- employment_countyz %>%
+  mutate(employmentchange2 = (estimate.y - estimate.x)) %>% 
+  rename("FIPS" = "GEOID") 
+  employment_countyz1$FIPS <- as.numeric(as.character(employment_countyz1$FIPS))
+
+pres_employmentz1 <- inner_join(pres13, employment_countyz1, by = c("FIPS")) %>% 
+  select(-NAME, -variable)
+
+logistic56 <- glm(flip ~ employmentchange2, data = pres_employmentz1, family = "binomial")
+summary(logistic56)
+
+ggplot(pres_employmentz1, aes(employmentchange2, flip)) + geom_point() + geom_smooth(method = glm, method.args = list(family = "binomial"), 
+    se = FALSE) + labs(title = "2016-2020 Change in Employment and Flipping")
+
+```
+```{r, echo=FALSE}
+logistic56 <- glm(flip ~ employmentchange2, data = pres_employmentz1, family = "binomial")
+summary(logistic56)
+```
+
+Employment followed the same trend as the previous variable so not much more can be said without repetition.
+
+The end result showed that really none of these variables are very indicative of flipping.  Most counties that flipped had little change in these variables with few exceptions.  So, either I chose the wrong variables or a lot more can be looked at.  Maybe a bit of both.  If I were to amend this project and go deeper overall population of counties should also be taken into account.  If I were to add anything, a map of counties that flipped would have been interesting with the graphs.  This project was very fun and interesting and importantly a good stepping stone for further inquiries.  
+
+
+
+
+
+
+
+
+
+
+
